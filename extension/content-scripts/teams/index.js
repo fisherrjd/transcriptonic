@@ -1,17 +1,18 @@
 let isTeamsInjected = false
 
 setInterval(() => {
-  // Meeting lobby
-  const isJoinButtonFound = document.querySelector(SELECTORS_TEAMS.PREJOIN_JOIN_BUTTON)
+  // Meeting lobby. Shown for scheduled meetings and "Meet now" meetings
+  const isJoinButtonFound = Boolean(document.querySelector(SELECTORS_TEAMS.PREJOIN_JOIN_BUTTON))
+  // Live call UI. Impromptu one to one and group calls connect straight away, without a lobby
+  const isHangupButtonFound = Boolean(document.querySelector(SELECTORS_TEAMS.HANGUP_BUTTON))
 
-  // On the meeting lobby and main teams function is not running, inject it
-  // This won't cause multiple main teams injections into the current meeting because when the previous meeting ends, all UI elements are gone, destroying the corresponding event listeners
-  if (isJoinButtonFound && !isTeamsInjected) {
+  // On the meeting lobby or already in a call, and main teams function is not running, inject it
+  if ((isJoinButtonFound || isHangupButtonFound) && !isTeamsInjected) {
     initTeams()
     isTeamsInjected = true
   }
-  // Reset flag for next meeting lobby visit
-  if (!isJoinButtonFound) {
+  // Reset flag only when neither the lobby nor a call is on screen, so that the lobby to call transition does not trigger a second injection into the same meeting
+  if (!isJoinButtonFound && !isHangupButtonFound) {
     isTeamsInjected = false
   }
 }, 2000)
@@ -127,7 +128,23 @@ function teamsMeetingRoutines(state) {
         }
         endCallElement?.addEventListener("click", meetingEndRoutines)
 
+        // In impromptu calls, the other person can end the call, so the local user never clicks hangup. Poll for the call UI disappearing as a fallback.
+        const callUiMonitor = setInterval(() => {
+          if (state.hasMeetingEnded) {
+            clearInterval(callUiMonitor)
+            return
+          }
+          if (!document.querySelector(SELECTORS_TEAMS.HANGUP_BUTTON)) {
+            clearInterval(callUiMonitor)
+            meetingEndRoutines()
+          }
+        }, 2000)
+
         function meetingEndRoutines() {
+          // Guard against the click listener and the call UI monitor both firing
+          if (state.hasMeetingEnded) {
+            return
+          }
           endCallElement?.removeEventListener("click", meetingEndRoutines)
           console.log("Meeting ended")
           // To suppress further errors
